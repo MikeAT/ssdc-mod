@@ -1,13 +1,15 @@
 #!/usr/bin/env python2
 import pydeep
-from os.path import abspath, isfile, isdir, join
+from os.path import abspath, isfile, isdir, join, isdir, dirname
 import json
 import StringIO
 import tarfile
 import hashlib
 import base64
+import csv
 from struct import unpack
 from glob import iglob
+
 
 
 def get_all_7_char_chunks(h):
@@ -105,6 +107,10 @@ if __name__ == "__main__":
                         help="Store files in output tar")
     parser.add_argument('-d', '--dontcompute', default=False, required=False, action='store_true',
                         help="Treat input as ssDeep hashes")
+    parser.add_argument('-m', '--matchscore', default=1, required=False, type=int,
+                        help="Minimum score of ssdeep match 1-100")
+    parser.add_argument('-c', '--csvout', default="output.csv", required=False, type=str,
+                        help="CSV of Groups and hashes")
 
     args = parser.parse_args()
 
@@ -168,7 +174,7 @@ if __name__ == "__main__":
         matches[path] = set()
         for other in similar_to:
             score = pydeep.compare(h, hashes[other])
-            if score > 0:
+            if score >= args.matchscore:
                 matches[path].add(other)
                 matches[other].add(path)
                 if path not in scores:
@@ -181,7 +187,7 @@ if __name__ == "__main__":
                 if path not in scores[other]:
                     scores[other][path] = score
 
-        print "{0}\tSHA256: {1}\tssdeep: {2}".format(path, sha256s[path], hashes[path])
+        #print "{0}\tSHA256: {1}\tssdeep: {2}".format(path, sha256s[path], hashes[path])
 
     groups = []
     for path in matches.keys():
@@ -225,6 +231,25 @@ if __name__ == "__main__":
         mytar.addfile(tarinfo=info, fileobj=json_tar_file)
 
     print "{0} files organized into {1} groups".format(len(hashes), len(groups))
+    '''
     print "Groups distribution:"
     for group in xrange(len(groups)):
         print "Group {0} has {1} files".format(group, len(groups[group]))
+    '''
+
+    if args.csvout:
+        if isdir(dirname(args.csvout)):
+            with open(args.csvout, 'w') as file_out:
+                fieldnames = ['groupid', 'sha256', 'path', 'groupsize']
+                writer = csv.DictWriter(file_out, fieldnames=fieldnames)
+                writer.writeheader()
+                for group in xrange(len(groups)):
+                    for path in groups[group]:
+                        row = {}
+                        row["sha256"] = str(hashlib.sha256(file(path, 'rb').read()).hexdigest()).upper()
+                        row["groupid"] = group
+                        row["path"] = path
+                        row['groupsize'] = len(groups[group])
+                        writer.writerow(row)
+        print "Output written to {}".format(args.csvout)
+
